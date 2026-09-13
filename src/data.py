@@ -30,7 +30,10 @@ from typing import Iterable
 from datasets import Dataset, load_dataset, load_dataset_builder
 from dotenv import load_dotenv
 from PIL import Image
+from torch.utils.data import Dataset as TorchDataset
 import os
+import torch
+import torchvision.transforms.functional as TF
 
 load_dotenv()
 
@@ -158,6 +161,56 @@ def write_yolo_yaml(yolo_dir: Path, category_names: list[str]) -> Path:
     ] + [f"  {i}: {name}" for i, name in enumerate(category_names)]
     yaml_path.write_text("\n".join(lines) + "\n")
     return yaml_path
+
+
+class CocoDetectionDataset(TorchDataset):
+    """Lê um `instances_*.json` (formato COCO, gerado por `convert_fashionpedia`)
+    e devolve (imagem, target) no formato esperado pelo torchvision:
+    boxes em [x1, y1, x2, y2] absolutos e labels deslocados +1 (0 é a classe
+    de background reservada pelo Faster R-CNN / SSD do torchvision).
+    Usada por `src/train.py` e `src/eval.py`.
+    """
+
+    def __init__(self, images_dir: str | Path, ann_path: str | Path):
+        self.images_dir = Path(images_dir)
+
+        with open(ann_path) as f:
+            coco = json.load(f)
+
+        self.images = {img["id"]: img for img in coco["images"]}
+        self.image_ids = list(self.images.keys())
+
+        self.annotations_by_image: dict[int, list[dict]] = {}
+        for ann in coco["annotations"]:
+            self.annotations_by_image.setdefault(ann["image_id"], []).append(ann)
+
+    def __len__(self) -> int:
+        return len(self.image_ids)
+
+    def __getitem__(self, idx: int):
+        image_id = self.image_ids[idx]
+        image_info = self.images[image_id]
+        image = Image.open(self.images_dir / image_info["file_name"]).convert("RGB")
+        image = TF.to_tensor(image)
+
+        anns = self.annotations_by_image.get(image_id, [])
+        boxes, labels = [], []
+        for ann in anns:
+            x, y, w, h = ann["bbox"]
+            boxes.append([x, y, x + w, y + h])
+            labels.append(ann["category_id"] + 1)
+
+        boxes_t = torch.as_tensor(boxes, dtype=torch.float32) if boxes else torch.zeros((0, 4), dtype=torch.float32)
+        labels_t = torch.as_tensor(labels, dtype=torch.int64) if labels else torch.zeros((0,), dtype=torch.int64)
+
+        target = {"boxes": boxes_t, "labels": labels_t, "image_id": torch.tensor([image_id])}
+        return image, target
+
+
+def detection_collate_fn(batch):
+    """collate_fn para DataLoader com CocoDetectionDataset: imagens têm
+    tamanhos diferentes, então não dá pra empilhar em um único tensor."""
+    return tuple(zip(*batch))
 
 
 def convert_fashionpedia(output_dir: str | Path = "data", val_ratio: float = 0.1,
