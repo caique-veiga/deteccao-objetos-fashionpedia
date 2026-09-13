@@ -328,7 +328,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Converte o Fashionpedia para COCO/YOLO e roda EDA.")
     parser.add_argument("--output-dir", default="data")
     parser.add_argument("--val-ratio", type=float, default=0.1)
-    parser.add_argument("--limit", type=int, default=None, help="Usa só N exemplos (streaming), para testes rápidos")
+    parser.add_argument("--limit", type=int, default=None, help="Usa só N exemplos (baixa 1 shard pequeno), para testes rápidos")
     parser.add_argument("--formats", nargs="+", default=["coco", "yolo"])
     parser.add_argument("--eda", action="store_true")
     args = parser.parse_args()
