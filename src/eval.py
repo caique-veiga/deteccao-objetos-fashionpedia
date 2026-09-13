@@ -157,13 +157,25 @@ def evaluate_model(model_name: str, model, data_dir: str | Path = "data",
 def evaluate_all_models(models_dict: dict, data_dir: str | Path = "data",
                          predictions_dir: str | Path = "logs", **kwargs) -> dict:
     """Avalia vários modelos de uma vez. `models_dict` é `{model_name: model}`.
-    Retorna `{model_name: {"mAP@0.5": ..., "mAP@0.5:0.95": ...}}`, pronto para
-    comparar (ex: em `src/plotting.py`).
+    Retorna `{model_name: {"mAP@0.5": ..., "mAP@0.5:0.95": ...}}` e também
+    salva esse dict em `{predictions_dir}/metrics.json`, pra `src/plotting.py`
+    conseguir gerar o gráfico comparativo depois sem precisar rodar a
+    avaliação de novo na mesma sessão.
     """
-    return {
+    predictions_dir = Path(predictions_dir)
+    predictions_dir.mkdir(parents=True, exist_ok=True)
+
+    results = {
         name: evaluate_model(name, model, data_dir=data_dir, predictions_dir=predictions_dir, **kwargs)
         for name, model in models_dict.items()
     }
+
+    metrics_path = predictions_dir / "metrics.json"
+    with open(metrics_path, "w") as f:
+        json.dump(results, f, indent=2)
+    print(f"Métricas de todos os modelos salvas em {metrics_path}")
+
+    return results
 
 
 if __name__ == "__main__":
