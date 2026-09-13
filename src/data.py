@@ -118,6 +118,10 @@ def convert_split_to_coco(examples: Iterable[dict], category_names: list[str],
         objects = example["objects"]
         for bbox, category, area in zip(objects["bbox"], objects["category"], objects["area"]):
             x_min, y_min, box_w, box_h = _voc_bbox_to_xywh(bbox)
+            if box_w <= 0 or box_h <= 0:
+                # Anotação degenerada no Fashionpedia (bbox com largura/altura zero ou
+                # negativa) — rara, mas existe em escala real; descartamos na origem.
+                continue
             annotations.append({
                 "id": ann_id,
                 "image_id": image_id,
@@ -150,6 +154,8 @@ def convert_split_to_yolo(examples: Iterable[dict], images_dir: Path, labels_dir
         objects = example["objects"]
         for bbox, category in zip(objects["bbox"], objects["category"]):
             x_min, y_min, box_w, box_h = _voc_bbox_to_xywh(bbox)
+            if box_w <= 0 or box_h <= 0:
+                continue
             x_center = (x_min + box_w / 2) / width
             y_center = (y_min + box_h / 2) / height
             lines.append(f"{category} {x_center:.6f} {y_center:.6f} {box_w / width:.6f} {box_h / height:.6f}")
@@ -204,6 +210,12 @@ class CocoDetectionDataset(TorchDataset):
         boxes, labels = [], []
         for ann in anns:
             x, y, w, h = ann["bbox"]
+            if w <= 0 or h <= 0:
+                # Anotação degenerada (bbox com largura/altura zero ou negativa) — existe uma
+                # pequena quantidade no Fashionpedia completo (não aparece em amostras pequenas
+                # como o smoke test). O torchvision recusa esses boxes com AssertionError, então
+                # descartamos aqui em vez de deixar quebrar o treino.
+                continue
             boxes.append([x, y, x + w, y + h])
             labels.append(ann["category_id"] + 1)
 
