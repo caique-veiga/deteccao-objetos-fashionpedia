@@ -1,0 +1,36 @@
+# Ambiente virtual
+venv/
+env/
+__pycache__/
+*.pyc
+
+# Variáveis de ambiente e segredos
+.env
+*.key
+
+# Dados (geralmente grandes demais pro git, e nem deveriam ir)
+data/
+*.zip
+*.tar.gz
+
+# Modelos e checkpoints (grandes, não pertencem ao git)
+checkpoints/
+*.pt
+*.pth
+*.onnx
+runs/
+wandb/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Outputs de treino grandes
+outputs/
+predictions.json
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode/

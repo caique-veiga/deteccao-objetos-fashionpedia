@@ -1,0 +1,7 @@
+torch
+torchvision
+ultralytics
+pycocotools
+matplotlib
+python-dotenv
+datasets
