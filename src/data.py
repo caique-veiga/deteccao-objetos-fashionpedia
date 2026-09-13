@@ -6,29 +6,37 @@ Fonte: https://huggingface.co/datasets/detection-datasets/fashionpedia
 - O bbox no dataset original vem em Pascal VOC: [x_min, y_min, x_max, y_max],
   em pixels absolutos. COCO usa [x_min, y_min, width, height]; YOLO usa
   [x_center, y_center, width, height] normalizado entre 0 e 1.
-- O dataset só tem os splits "train" e "validation" no Hugging Face (sem "test"
+- O dataset só tem os splits "train" e "val" no Hugging Face (sem "test"
   rotulado). Por isso dividimos "train" em train/val para uso durante o treino,
-  e usamos o "validation" original do HF como nosso "test" (nunca visto durante
+  e usamos o "val" original do HF como nosso "test" (nunca visto durante
   o treino/tuning).
+- Em modo `limit` (smoke test), NÃO usamos `datasets` em streaming: para este
+  dataset o streaming tenta ler um bloco grande do parquet remoto de uma vez
+  (um GET HTTP cujo corpo inteiro é bufferizado em RAM antes de retornar),
+  o que estoura memória mesmo pedindo poucos exemplos. Em vez disso, baixamos
+  1 shard parquet pequeno (cacheado por `huggingface_hub`) e lemos poucas
+  linhas dele localmente com `pyarrow`, o que é seguro em memória.
 """
 
 from __future__ import annotations
 
 import argparse
+import io
 import json
 from collections import Counter, defaultdict
-from itertools import islice
 from pathlib import Path
 from typing import Iterable
 
 from datasets import Dataset, load_dataset, load_dataset_builder
 from dotenv import load_dotenv
+from PIL import Image
 import os
 
 load_dotenv()
 
 HF_DATASET_NAME = "detection-datasets/fashionpedia"
 HF_TOKEN = os.getenv("HF_TOKEN") or None
+_PARQUET_SHARD = {"train": "default/train/0000.parquet", "val": "default/val/0000.parquet"}
 
 
 def get_category_names() -> list[str]:
@@ -45,12 +53,33 @@ def _load_split_full(hf_split: str) -> Dataset:
 
 
 def _load_split_limited(hf_split: str, limit: int, seed: int) -> list[dict]:
-    """Baixa só `limit` exemplos via streaming, sem baixar o dataset inteiro.
-    Usado no smoke test e em execuções rápidas de depuração.
+    """Baixa só 1 shard parquet pequeno (~85MB o de val, ~480MB o de treino) e lê
+    `limit` linhas dele localmente com pyarrow. Usado no smoke test e em
+    execuções rápidas de depuração — ver nota no docstring do módulo sobre por
+    que não usamos o modo streaming do `datasets` aqui.
     """
-    stream = load_dataset(HF_DATASET_NAME, split=hf_split, streaming=True, token=HF_TOKEN)
-    stream = stream.shuffle(seed=seed, buffer_size=max(limit * 4, 50))
-    return list(islice(stream, limit))
+    import random
+
+    import pyarrow.parquet as pq
+    from huggingface_hub import hf_hub_download
+
+    local_path = hf_hub_download(
+        repo_id=HF_DATASET_NAME,
+        repo_type="dataset",
+        revision="refs/convert/parquet",
+        filename=_PARQUET_SHARD[hf_split],
+        token=HF_TOKEN,
+    )
+
+    parquet_file = pq.ParquetFile(local_path)
+    batch = next(parquet_file.iter_batches(batch_size=limit))
+    rows = batch.to_pylist()
+
+    for row in rows:
+        row["image"] = Image.open(io.BytesIO(row["image"]["bytes"]))
+
+    random.Random(seed).shuffle(rows)
+    return rows
 
 
 def _save_image(pil_image, path: Path) -> None:
@@ -136,9 +165,10 @@ def convert_fashionpedia(output_dir: str | Path = "data", val_ratio: float = 0.1
                           formats: Iterable[str] = ("coco", "yolo")) -> dict[str, int]:
     """Baixa o Fashionpedia e converte para os formatos pedidos em `formats`.
 
-    Se `limit` for informado, baixa só uma amostra pequena via streaming
-    (usado pelo smoke test, para não precisar baixar o dataset inteiro).
-    Retorna a quantidade de imagens geradas em cada split.
+    Se `limit` for informado, baixa só 1 shard parquet pequeno e usa uma
+    amostra de `limit` exemplos dele (usado pelo smoke test, para não
+    precisar baixar o dataset inteiro). Retorna a quantidade de imagens
+    geradas em cada split.
     """
     output_dir = Path(output_dir)
     category_names = get_category_names()
@@ -146,12 +176,12 @@ def convert_fashionpedia(output_dir: str | Path = "data", val_ratio: float = 0.1
     if limit is None:
         split = _load_split_full("train").train_test_split(test_size=val_ratio, seed=seed)
         train_examples, val_examples = split["train"], split["test"]
-        test_examples = _load_split_full("validation")
+        test_examples = _load_split_full("val")
     else:
         val_count = max(1, int(limit * val_ratio))
         examples = _load_split_limited("train", limit, seed)
         train_examples, val_examples = examples[val_count:], examples[:val_count]
-        test_examples = _load_split_limited("validation", max(1, limit // 5), seed)
+        test_examples = _load_split_limited("val", max(1, limit // 5), seed)
 
     splits = {"train": train_examples, "val": val_examples, "test": test_examples}
 
