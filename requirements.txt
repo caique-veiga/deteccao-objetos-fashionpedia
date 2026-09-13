@@ -5,3 +5,4 @@ pycocotools
 matplotlib
 python-dotenv
 datasets
+tqdm

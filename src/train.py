@@ -37,6 +37,7 @@ from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from data import CocoDetectionDataset, detection_collate_fn
 
@@ -132,7 +133,8 @@ def train_torchvision_model(
 
         model.train()
         train_loss_sum = 0.0
-        for images, targets in train_loader:
+        train_bar = tqdm(train_loader, desc=f"[{model_name}] época {epoch} (train)", leave=False)
+        for batch_idx, (images, targets) in enumerate(train_bar, start=1):
             images = [img.to(device) for img in images]
             targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
@@ -144,16 +146,20 @@ def train_torchvision_model(
             optimizer.step()
 
             train_loss_sum += loss.item()
+            train_bar.set_postfix(loss=f"{loss.item():.4f}", media=f"{train_loss_sum / batch_idx:.4f}")
         train_loss = train_loss_sum / max(len(train_loader), 1)
 
         model.train()  # losses só existem em modo train(); ver nota no topo do arquivo
         val_loss_sum = 0.0
+        val_bar = tqdm(val_loader, desc=f"[{model_name}] época {epoch} (val)", leave=False)
         with torch.no_grad():
-            for images, targets in val_loader:
+            for batch_idx, (images, targets) in enumerate(val_bar, start=1):
                 images = [img.to(device) for img in images]
                 targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
                 loss_dict = model(images, targets)
-                val_loss_sum += sum(loss_dict.values()).item()
+                loss = sum(loss_dict.values()).item()
+                val_loss_sum += loss
+                val_bar.set_postfix(loss=f"{loss:.4f}", media=f"{val_loss_sum / batch_idx:.4f}")
         val_loss = val_loss_sum / max(len(val_loader), 1)
 
         current_lr = optimizer.param_groups[0]["lr"]
