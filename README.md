@@ -90,10 +90,13 @@ será preenchida depois disso.
    python src/plotting.py map --metrics-path logs/metrics.json
    ```
 
-Os passos 4–7 rodam melhor no **Google Colab** (GPU), clonando este repositório
-e instalando `requirements.txt` — ver `notebooks/colab_orchestrator.ipynb`
-(a ser criado diretamente no Colab, com células markdown documentando cada
-etapa do experimento, conforme exigido no enunciado do trabalho).
+Os passos 4–7 rodam melhor no **Google Colab** (GPU): abra
+`notebooks/colab_orchestrator.ipynb` no Colab (clona o repositório, monta o
+Drive para persistir checkpoints/logs, e chama os scripts acima na ordem
+certa). O notebook tem blocos de markdown com instruções para preencher a
+análise pedida no enunciado (problema, base de dados, metodologia,
+experimentos, resultados, conclusão) — apague cada instrução ao escrever
+o texto correspondente.
 
 ## Metodologia
 
