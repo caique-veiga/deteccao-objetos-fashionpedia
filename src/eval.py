@@ -67,20 +67,29 @@ def predict_torchvision_model(model, test_dataset: CocoDetectionDataset, device:
 
 
 def predict_yolo_model(yolo_model, images_dir: str | Path, ann_path: str | Path,
-                        imgsz: int = 640, score_threshold: float = 0.0) -> list[dict]:
+                        imgsz: int = 640, score_threshold: float = 0.0,
+                        device: str | None = None, batch_size: int = 4) -> list[dict]:
     """Roda inferência do YOLO nas imagens listadas em `ann_path` (COCO json,
     usado só pra saber quais image_id/file_name existem) e retorna as
     predições no formato COCO results.
+
+    Usa `stream=True` + `batch=batch_size`: o ultralytics processa a lista de
+    imagens em lotes internamente (mesmo espírito do DataLoader usado por
+    `predict_torchvision_model`), em vez de 1 chamada `.predict()` por imagem.
     """
     images_dir = Path(images_dir)
     with open(ann_path) as f:
         coco = json.load(f)
 
-    results = []
-    for image_info in coco["images"]:
-        image_path = images_dir / image_info["file_name"]
-        prediction = yolo_model.predict(source=str(image_path), imgsz=imgsz, verbose=False)[0]
+    image_paths = [str(images_dir / img["file_name"]) for img in coco["images"]]
+    image_ids = [img["id"] for img in coco["images"]]
 
+    predictions_stream = yolo_model.predict(
+        source=image_paths, imgsz=imgsz, batch=batch_size, device=device, stream=True, verbose=False,
+    )
+
+    results = []
+    for image_id, prediction in zip(image_ids, predictions_stream):
         boxes = prediction.boxes.xyxy.cpu()
         classes = prediction.boxes.cls.cpu()
         scores = prediction.boxes.conf.cpu()
@@ -90,7 +99,7 @@ def predict_yolo_model(yolo_model, images_dir: str | Path, ann_path: str | Path,
                 continue
             x1, y1, x2, y2 = box.tolist()
             results.append({
-                "image_id": image_info["id"],
+                "image_id": image_id,
                 "category_id": int(cls.item()),
                 "bbox": [x1, y1, x2 - x1, y2 - y1],
                 "score": float(score.item()),
@@ -139,7 +148,7 @@ def evaluate_model(model_name: str, model, data_dir: str | Path = "data",
     ann_path = data_dir / "coco" / "annotations" / "instances_test.json"
 
     if model_name == "yolo":
-        predictions = predict_yolo_model(model, images_dir, ann_path)
+        predictions = predict_yolo_model(model, images_dir, ann_path, device=device, batch_size=batch_size)
     else:
         test_dataset = CocoDetectionDataset(images_dir, ann_path)
         predictions = predict_torchvision_model(model, test_dataset, device=device, batch_size=batch_size)

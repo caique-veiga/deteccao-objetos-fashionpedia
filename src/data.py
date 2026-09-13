@@ -90,6 +90,14 @@ def _save_image(pil_image, path: Path) -> None:
         pil_image.convert("RGB").save(path, format="JPEG", quality=90)
 
 
+def _voc_bbox_to_xywh(bbox: list[float]) -> tuple[float, float, float, float]:
+    """Converte bbox de Pascal VOC [x_min,y_min,x_max,y_max] (formato original
+    do Fashionpedia) para [x_min,y_min,width,height]. Usado tanto pelo export
+    COCO (pixels absolutos) quanto pelo YOLO (que ainda normaliza por cima)."""
+    x_min, y_min, x_max, y_max = bbox
+    return x_min, y_min, x_max - x_min, y_max - y_min
+
+
 def convert_split_to_coco(examples: Iterable[dict], category_names: list[str],
                            images_dir: Path, ann_path: Path) -> None:
     images_dir.mkdir(parents=True, exist_ok=True)
@@ -109,12 +117,12 @@ def convert_split_to_coco(examples: Iterable[dict], category_names: list[str],
 
         objects = example["objects"]
         for bbox, category, area in zip(objects["bbox"], objects["category"], objects["area"]):
-            x_min, y_min, x_max, y_max = bbox
+            x_min, y_min, box_w, box_h = _voc_bbox_to_xywh(bbox)
             annotations.append({
                 "id": ann_id,
                 "image_id": image_id,
                 "category_id": category,
-                "bbox": [x_min, y_min, x_max - x_min, y_max - y_min],
+                "bbox": [x_min, y_min, box_w, box_h],
                 "area": float(area),
                 "iscrowd": 0,
             })
@@ -141,8 +149,7 @@ def convert_split_to_yolo(examples: Iterable[dict], images_dir: Path, labels_dir
         lines = []
         objects = example["objects"]
         for bbox, category in zip(objects["bbox"], objects["category"]):
-            x_min, y_min, x_max, y_max = bbox
-            box_w, box_h = x_max - x_min, y_max - y_min
+            x_min, y_min, box_w, box_h = _voc_bbox_to_xywh(bbox)
             x_center = (x_min + box_w / 2) / width
             y_center = (y_min + box_h / 2) / height
             lines.append(f"{category} {x_center:.6f} {y_center:.6f} {box_w / width:.6f} {box_h / height:.6f}")
@@ -231,7 +238,10 @@ def convert_fashionpedia(output_dir: str | Path = "data", val_ratio: float = 0.1
         train_examples, val_examples = split["train"], split["test"]
         test_examples = _load_split_full("val")
     else:
-        val_count = max(1, int(limit * val_ratio))
+        # min(..., limit - 1) garante pelo menos 1 exemplo de treino quando
+        # `limit` é pequeno (ex: limit=1 sem essa trava deixaria o split de
+        # treino vazio, já que val_count poderia ser igual a limit).
+        val_count = max(1, min(int(limit * val_ratio), limit - 1)) if limit > 1 else 0
         examples = _load_split_limited("train", limit, seed)
         train_examples, val_examples = examples[val_count:], examples[:val_count]
         test_examples = _load_split_limited("val", max(1, limit // 5), seed)

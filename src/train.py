@@ -95,9 +95,10 @@ def train_torchvision_model(
     if resume_from is not None:
         checkpoint = torch.load(resume_from, map_location=device)
         model.load_state_dict(checkpoint["model_state_dict"])
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])  # restaura o lr salvo, ignora `lr` abaixo
         start_epoch = checkpoint["epoch"] + 1
-        print(f"[{model_name}] retomando treino de '{resume_from}' a partir da época {start_epoch}")
+        print(f"[{model_name}] retomando treino de '{resume_from}' a partir da época {start_epoch} "
+              f"(parâmetro lr={lr} ignorado: o otimizador retomado já traz o lr salvo no checkpoint)")
 
     # Cosine annealing: o ultralytics já decai o LR automaticamente no YOLO,
     # então adicionamos um schedule aqui pra não deixar Faster R-CNN/SSD em

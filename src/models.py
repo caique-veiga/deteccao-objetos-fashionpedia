@@ -11,15 +11,37 @@ lido automaticamente do `data.yaml` na hora do treino.
 
 from __future__ import annotations
 
+import torch
 from torchvision.models.detection import (
     fasterrcnn_resnet50_fpn,
     FasterRCNN_ResNet50_FPN_Weights,
     ssd300_vgg16,
     SSD300_VGG16_Weights,
 )
-from torchvision.models.detection._utils import retrieve_out_channels
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchvision.models.detection.ssd import SSDClassificationHead
+
+
+def _retrieve_out_channels(backbone, image_size: tuple[int, int]) -> list[int]:
+    """Descobre o número de canais de saída de cada feature map do backbone,
+    rodando um forward de teste com um tensor aleatório.
+
+    Implementado localmente (em vez de importar
+    `torchvision.models.detection._utils.retrieve_out_channels`, que faz
+    exatamente isso) porque é uma API privada — o nome/local pode mudar sem
+    aviso entre versões do torchvision, quebrando `get_ssd_model` sem
+    alternativa pronta.
+    """
+    was_training = backbone.training
+    backbone.eval()
+    with torch.no_grad():
+        device = next(backbone.parameters()).device
+        dummy_image = torch.zeros((1, 3, *image_size), device=device)
+        features = backbone(dummy_image)
+    backbone.train(was_training)
+
+    features = [features] if isinstance(features, torch.Tensor) else list(features.values())
+    return [f.shape[1] for f in features]
 
 
 def get_yolo_model(model_name: str = "yolov8n.pt"):
@@ -55,7 +77,7 @@ def get_ssd_model(num_classes: int, pretrained: bool = True):
     weights = SSD300_VGG16_Weights.DEFAULT if pretrained else None
     model = ssd300_vgg16(weights=weights)
 
-    in_channels = retrieve_out_channels(model.backbone, (300, 300))
+    in_channels = _retrieve_out_channels(model.backbone, (300, 300))
     num_anchors = model.anchor_generator.num_anchors_per_location()
     model.head.classification_head = SSDClassificationHead(
         in_channels=in_channels,
