@@ -198,6 +198,7 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint", required=True,
                          help="Checkpoint a avaliar: .pt do train.py (fasterrcnn/ssd) ou best.pt/last.pt do YOLO")
     parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--predictions-dir", default="logs")
     args = parser.parse_args()
 
     if args.model == "yolo":
@@ -210,4 +211,18 @@ if __name__ == "__main__":
         checkpoint = torch.load(args.checkpoint, map_location="cpu")
         model.load_state_dict(checkpoint["model_state_dict"])
 
-    evaluate_model(args.model, model, data_dir=args.data_dir, batch_size=args.batch_size)
+    metrics = evaluate_model(args.model, model, data_dir=args.data_dir,
+                              predictions_dir=args.predictions_dir, batch_size=args.batch_size)
+
+    # A CLI avalia 1 modelo por chamada (é como o notebook usa), então acumulamos o
+    # resultado em metrics.json a cada chamada, em vez de só escrever dentro de
+    # evaluate_all_models() (que só é usada quando os 3 modelos são avaliados juntos
+    # numa mesma sessão Python, como no tests/smoke_test.py). Sem isso, quem roda
+    # `python src/eval.py <modelo> ...` 3 vezes separadas (via CLI) nunca tinha um
+    # metrics.json pra `plotting.py map` ler.
+    metrics_path = Path(args.predictions_dir) / "metrics.json"
+    all_metrics = json.load(open(metrics_path)) if metrics_path.exists() else {}
+    all_metrics[args.model] = metrics
+    with open(metrics_path, "w") as f:
+        json.dump(all_metrics, f, indent=2)
+    print(f"Métricas atualizadas em {metrics_path}")
